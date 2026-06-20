@@ -1,10 +1,8 @@
 import axios from 'axios';
-
-// Use relative path so Vercel rewrites (prod) and Vite proxy (dev) can forward to backend
-const API_BASE = '/api';
+import { API_BASE_URL } from '../config/env';
 
 const api = axios.create({
-    baseURL: API_BASE,
+    baseURL: API_BASE_URL,
 });
 
 // Request interceptor to add JWT token

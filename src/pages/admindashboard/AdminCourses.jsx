@@ -20,6 +20,7 @@ import logo from "../../assets/logo.png";
 
 
 import { getCourses } from "../../services/api";
+import { getMediaUrl } from "../../config/env";
 // import { coursesData } from "../../data/course/courseData"; // Removed mock data import
 
 import CreateCourseModal from "./CreateCourseModal";
@@ -40,8 +41,7 @@ export default function AdminCourses() {
             const mappedVals = (data || []).map((c) => {
                 let finalImage = c.image;
                 if (finalImage && !finalImage.startsWith('http')) {
-                    // Ensure the URL includes the backend base and /media/ prefix if needed
-                    finalImage = `${finalImage.startsWith('/') ? '' : '/media/'}${finalImage}`;
+                    finalImage = getMediaUrl(finalImage);
                 }
 
                 return {

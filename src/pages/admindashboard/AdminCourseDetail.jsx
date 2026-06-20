@@ -25,6 +25,7 @@ import {
 import { Link, useParams, NavLink as RouterNavLink } from "react-router-dom";
 import logo from "../../assets/logo.png";
 import { getCourse, enrollStudent, deleteModule, assignTrainer, unassignTrainer, toggleTrainerActivation, createCourseBatch } from "../../services/api";
+import { getMediaUrl } from "../../config/env";
 import ModuleModal from "./ModuleModal";
 import EditCourseModal from "./EditCourseModal";
 
@@ -329,7 +330,7 @@ export default function AdminCourseDetail() {
                                             {course.image ? (
                                                 <img
                                                     src={(course.image && !course.image.startsWith('http'))
-                                                        ? `${course.image.startsWith('/') ? '' : '/media/'}${course.image}`
+                                                        ? getMediaUrl(course.image)
                                                         : course.image}
                                                     alt="Thumbnail"
                                                     className="w-full h-full object-cover"

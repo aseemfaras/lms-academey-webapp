@@ -18,27 +18,29 @@ A React-based Learning Management System (LMS) for students, trainers, and admin
 | HTTP | Axios (JWT auth interceptors) |
 | Build | Vite 7 |
 | Process manager | PM2 |
-| Reverse proxy | Nginx (required for API/media in production) |
+| Reverse proxy | Nginx (optional — serves frontend on port 80) |
 | Backend | Django REST API (port `8000`) |
 
 ## Architecture
 
-This is a **Single Page Application (SPA)**. The frontend never embeds a backend URL in production — it calls relative paths (`/api`, `/media`). A reverse proxy forwards those requests to the Django backend.
+This is a **Single Page Application (SPA)**. The backend URL is read exclusively from `VITE_BACKEND_URL` in your `.env` file — there are no hardcoded URLs in the source code.
 
 ```
 Browser
    │
    ▼
-Nginx (port 80/443)
-   ├── /          → PM2 static server (port 3000, serves dist/)
-   ├── /api/*     → Django backend (port 8000)
-   └── /media/*   → Django backend (port 8000)
+PM2 / Nginx (port 80/443) — serves dist/
+   │
+   ▼
+React app calls VITE_BACKEND_URL directly
+   ├── http://BACKEND:8000/api/*     → REST API
+   └── http://BACKEND:8000/media/*   → Media files
 ```
 
-**Development** uses the Vite dev proxy instead of Nginx:
+**Development** — Vite also proxies `/api` and `/media` to the same `VITE_BACKEND_URL` to avoid CORS issues locally:
 
 ```
-Browser → Vite dev server (5173) → proxy /api, /media → Backend (8000)
+Browser → Vite dev server (5173) → proxy → VITE_BACKEND_URL
 ```
 
 ---
@@ -124,17 +126,19 @@ cp .env.example .env.production
 Create `.env` in the project root:
 
 ```env
-# Backend URL — used ONLY by the Vite dev server proxy (npm run dev)
-VITE_PROXY_TARGET=http://43.205.127.39:8000
+# Django backend origin (no trailing slash) — required for dev and production
+VITE_BACKEND_URL=http://43.205.127.39:8000
 
 # Port for PM2 static server (ecosystem.config.cjs)
 PORT=3000
 ```
 
-| Variable | Used when | Purpose |
-|----------|-----------|---------|
-| `VITE_PROXY_TARGET` | `npm run dev` | Tells Vite where to proxy `/api` and `/media` requests |
-| `PORT` | PM2 / `serve` | Port the frontend process listens on (default `3000`) |
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `VITE_BACKEND_URL` | **Yes** | Backend origin used for all API calls and media URLs |
+| `PORT` | No | Port the PM2 static server listens on (default `3000`) |
+
+> **Build will fail** if `VITE_BACKEND_URL` is not set. Always create `.env` (or `.env.production`) before running `npm run dev` or `npm run build`.
 
 ### Environment file loading order (Vite)
 
@@ -149,20 +153,18 @@ PORT=3000
 
 **Backend on the same server:**
 ```env
-VITE_PROXY_TARGET=http://127.0.0.1:8000
+VITE_BACKEND_URL=http://127.0.0.1:8000
 ```
 
-**Backend on a remote server (default in this project):**
+**Backend on a remote server:**
 ```env
-VITE_PROXY_TARGET=http://43.205.127.39:8000
+VITE_BACKEND_URL=http://43.205.127.39:8000
 ```
 
-**One-off dev command without editing .env:**
+**One-off build without editing .env:**
 ```bash
-VITE_PROXY_TARGET=http://localhost:8000 npm run dev
+VITE_BACKEND_URL=http://localhost:8000 npm run build
 ```
-
-> **Important:** `VITE_PROXY_TARGET` affects **development only**. The production build always uses relative `/api` and `/media` paths. You must configure Nginx to proxy those paths to your backend (see Section 5).
 
 ---
 
@@ -170,27 +172,24 @@ VITE_PROXY_TARGET=http://localhost:8000 npm run dev
 
 ### How the frontend talks to the backend
 
-All API logic lives in `src/services/api.js`:
+All backend URLs are resolved from `src/config/env.js`, which reads `VITE_BACKEND_URL`:
 
 ```javascript
-const API_BASE = '/api';   // relative path — proxied in dev and production
+// src/config/env.js
+export const API_BASE_URL = `${VITE_BACKEND_URL}/api`;
+export function getMediaUrl(path) { /* resolves to VITE_BACKEND_URL/media/... */ }
 ```
 
-| Path | Purpose |
-|------|---------|
-| `/api/*` | REST API (login, courses, users, live sessions, etc.) |
-| `/media/*` | Course images and uploaded files |
+`src/services/api.js` uses `API_BASE_URL` for every Axios request.
+
+| Path | Resolved to |
+|------|-------------|
+| API calls | `{VITE_BACKEND_URL}/api/*` |
+| Media files | `{VITE_BACKEND_URL}/media/*` |
 
 ### Dev proxy (vite.config.js)
 
-During `npm run dev`, Vite forwards requests automatically:
-
-```javascript
-proxy: {
-  '/api':   { target: process.env.VITE_PROXY_TARGET || 'http://43.205.127.39:8000' },
-  '/media': { target: process.env.VITE_PROXY_TARGET || 'http://43.205.127.39:8000' },
-}
-```
+During `npm run dev`, Vite also proxies `/api` and `/media` to `VITE_BACKEND_URL` to avoid CORS issues locally. The proxy target is read from the same env variable — no hardcoded fallback.
 
 ### Authentication flow
 
@@ -218,7 +217,7 @@ curl -X POST http://localhost:8000/api/users/login/ \
 - Django (or compatible) REST API on port **8000**
 - Endpoints under `/api/` (e.g. `users/login/`, `courses/`, `live-sessions/`)
 - Media files served at `/media/`
-- CORS configured if you bypass Nginx and call the backend URL directly from the browser
+- **CORS enabled** on the backend — the frontend calls the backend URL directly from the browser
 
 ---
 
@@ -327,58 +326,32 @@ pm2 save                          # Save process list
 pm2 startup                       # Enable auto-start on reboot (run the command it prints)
 ```
 
-### Step 4 — Configure Nginx (required)
+### Step 4 — Configure Nginx (optional, recommended for port 80)
 
-PM2 serves static files only. Nginx must proxy `/api` and `/media` to the backend and forward all other traffic to PM2.
+Nginx forwards public traffic to PM2. API calls go directly from the browser to `VITE_BACKEND_URL` — no API proxy in Nginx is needed.
 
 ```bash
 sudo nano /etc/nginx/sites-available/lms-frontend
 ```
-
-Paste (replace `YOUR_SERVER_IP` and paths as needed):
 
 ```nginx
 upstream lms_frontend {
     server 127.0.0.1:3000;
 }
 
-upstream lms_backend {
-    server 127.0.0.1:8000;          # or your remote backend IP:8000
-}
-
 server {
     listen 80;
     server_name YOUR_SERVER_IP;     # or your domain, e.g. lms.example.com
 
-    # Gzip
     gzip on;
     gzip_types text/plain text/css application/json application/javascript;
 
-    # API → Django backend
-    location /api/ {
-        proxy_pass http://lms_backend/api/;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # Media files → Django backend
-    location /media/ {
-        proxy_pass http://lms_backend/media/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-
-    # Static assets with caching
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
         proxy_pass http://lms_frontend;
         expires 30d;
         add_header Cache-Control "public, immutable";
     }
 
-    # SPA — all routes fall back to index.html
     location / {
         proxy_pass http://lms_frontend;
         proxy_http_version 1.1;
@@ -405,14 +378,14 @@ sudo systemctl reload nginx
 # Frontend
 curl -I http://localhost/
 
-# API through Nginx
-curl http://localhost/api/
+# Backend (direct)
+curl http://YOUR_BACKEND_IP:8000/api/
 
 # PM2 health
 pm2 status
 ```
 
-In a browser, open **http://YOUR_SERVER_IP/** and test login. Check DevTools → Network for `POST /api/users/login/` returning **200**.
+In a browser, open **http://YOUR_SERVER_IP/** and test login. Check DevTools → Network for `POST http://YOUR_BACKEND:8000/api/users/login/` returning **200**.
 
 ---
 
@@ -436,10 +409,10 @@ sudo npm install -g pm2 serve
 cd ~
 git clone https://github.com/YOUR_ORG/lms-academey-webapp.git
 cd lms-academey-webapp
-cp .env.example .env
-nano .env    # set VITE_PROXY_TARGET to your backend URL
+cp .env.example .env.production
+nano .env.production    # set VITE_BACKEND_URL to your backend URL
 
-# 5. Build and start
+# 5. Build and start (uses .env.production)
 npm install
 npm run build
 pm2 start ecosystem.config.cjs
@@ -461,7 +434,8 @@ curl http://localhost:8000/api/
 cd ~/lms-academey-webapp
 
 git pull origin main
-npm install          # only needed if package.json changed
+npm install                              # only if package.json changed
+# ensure .env.production has the correct VITE_BACKEND_URL
 npm run build
 pm2 restart lms-frontend
 ```
@@ -504,7 +478,7 @@ root /home/ubuntu/lms-academey-webapp/dist;
 location / { try_files $uri $uri/ /index.html; }
 ```
 
-Keep the `/api/` and `/media/` proxy blocks from Section 6.
+Set `VITE_BACKEND_URL` in `.env.production` before building — API calls go directly to the backend.
 
 ---
 
@@ -552,10 +526,11 @@ Full implementation: `src/services/api.js`
 
 | Problem | Cause | Fix |
 |---------|-------|-----|
-| `502 Bad Gateway` on `/api/` | Backend not running | Start Django on port 8000 |
+| `502 Bad Gateway` on API calls | Backend not running | Start Django on port 8000 |
 | `401 Unauthorized` | Invalid credentials or expired token | Re-login; check backend JWT settings |
-| CORS errors in dev | Wrong proxy target | Set `VITE_PROXY_TARGET` in `.env` |
-| Network error on login | Nginx not proxying `/api` | Add `/api/` location block (Section 6) |
+| CORS errors | Backend missing CORS headers | Allow your frontend origin in Django CORS settings |
+| Network error on login | Wrong `VITE_BACKEND_URL` | Check `.env` / `.env.production` and rebuild |
+| Build fails immediately | `VITE_BACKEND_URL` not set | Copy `.env.example` to `.env` |
 
 ### PM2
 
@@ -570,8 +545,7 @@ Full implementation: `src/services/api.js`
 ```bash
 pm2 logs lms-frontend --lines 50
 sudo tail -50 /var/log/nginx/error.log
-curl -v http://localhost/api/
-curl -v http://localhost:8000/api/
+curl -v http://YOUR_BACKEND_IP:8000/api/
 sudo netstat -tlnp | grep -E ':80|:3000|:8000'
 ```
 
@@ -605,18 +579,13 @@ src/
 
 ## 14. Vercel Deployment (Optional)
 
-The project includes `vercel.json` for Vercel hosting. Vercel rewrites `/api` and `/media` to the backend — same pattern as Nginx:
+Set `VITE_BACKEND_URL` in the Vercel project environment variables before deploying. The value is baked into the build at deploy time.
 
-```json
-{
-  "rewrites": [
-    { "source": "/api/:path*",   "destination": "http://43.205.127.39:8000/api/:path*" },
-    { "source": "/media/:path*", "destination": "http://43.205.127.39:8000/media/:path*" }
-  ]
-}
+```
+VITE_BACKEND_URL=http://your-backend-ip:8000
 ```
 
-Update the destination URL to your backend before deploying.
+`vercel.json` only handles SPA routing — API calls go directly to the backend URL from the browser.
 
 ---
 

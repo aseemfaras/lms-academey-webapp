@@ -3,6 +3,7 @@ import { Search, Play } from "lucide-react";
 import NavigationBar from "../components/navigationbar/NavigationBar";
 import CourseCard from "../components/coursecard/CourseCard";
 import { getCourses, enrollStudent, getEnrollments } from "../services/api";
+import { getMediaUrl } from "../config/env";
 import { useAuth } from "../context/AuthContext";
 
 export default function Courses() {
@@ -133,7 +134,7 @@ export default function Courses() {
                                         instructor: course.trainer_name || "Expert Instructor",
                                         category: course.category || "Development",
                                         image: (course.image && !course.image.startsWith('http'))
-                                            ? `${course.image.startsWith('/') ? '' : '/media/'}${course.image}`
+                                            ? getMediaUrl(course.image)
                                             : course.image || "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&q=80&w=800"
                                     }}
                                     onEnroll={handleEnroll}

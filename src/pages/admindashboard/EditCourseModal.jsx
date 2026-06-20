@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { X, Upload } from "lucide-react";
 import { updateCourse } from "../../services/api";
+import { getMediaUrl } from "../../config/env";
 
 export default function EditCourseModal({ isOpen, onClose, onSuccess, course }) {
     const [formData, setFormData] = useState({
@@ -25,7 +26,7 @@ export default function EditCourseModal({ isOpen, onClose, onSuccess, course }) 
             if (course.image) {
                 const previewUrl = course.image.startsWith('http')
                     ? course.image
-                    : `${course.image.startsWith('/') ? '' : '/media/'}${course.image}`;
+                    : getMediaUrl(course.image);
                 setImagePreview(previewUrl);
             }
         }

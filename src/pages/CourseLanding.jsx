@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import NavigationBar from "../components/navigationbar/NavigationBar";
 import CourseCard from "../components/coursecard/CourseCard";
 import { getCourse } from "../services/api";
+import { getMediaUrl } from "../config/env";
 
 export default function CourseLanding() {
     const { courseId } = useParams();
@@ -58,7 +59,7 @@ export default function CourseLanding() {
                                 instructor: course.trainer_name || "Expert Instructor",
                                 category: course.category || "Development",
                                 image: (course.image && !course.image.startsWith('http'))
-                                    ? `${course.image.startsWith('/') ? '' : '/media/'}${course.image}`
+                                    ? getMediaUrl(course.image)
                                     : course.image
                             }}
                             enrolled={true}
