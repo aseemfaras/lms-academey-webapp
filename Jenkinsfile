@@ -128,6 +128,16 @@ pipeline {
 
                 nodejs(nodeJSInstallationName: 'Node-LMS') {
 
+                    env.NODE_VERSION = sh(
+    script: 'node --version',
+    returnStdout: true
+).trim()
+
+env.NPM_VERSION = sh(
+    script: 'npm --version',
+    returnStdout: true
+).trim()
+                    
                     sh '''
                         set -eu
 
@@ -231,8 +241,8 @@ Build Number: ${BUILD_NUMBER}
 Commit: ${GIT_SHA}
 Job: ${JOB_NAME}
 Build URL: ${BUILD_URL}
-Node Version: $(node --version)
-NPM Version: $(npm --version)
+Node Version: ${NODE_VERSION}
+NPM Version: ${NPM_VERSION}
 Build Date UTC: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
 
@@ -295,101 +305,92 @@ EOF
         // STAGE 7: PUBLISH TO NEXUS
         // ==========================================
 
-        stage('Publish to Nexus') {
+        
+stage('Publish to Nexus') {
 
-            steps {
+    steps {
 
-                withCredentials([
+        withCredentials([
 
-                    usernamePassword(
+            usernamePassword(
+                credentialsId: 'nexus-lms-uploader',
+                usernameVariable: 'NEXUS_USER',
+                passwordVariable: 'NEXUS_PASSWORD'
+            )
 
-                        credentialsId: 'nexus-lms-uploader',
+        ]) {
 
-                        usernameVariable: 'NEXUS_USER',
+            sh '''
+                set +x
+                set -eu
 
-                        passwordVariable: 'NEXUS_PASSWORD'
+                echo "======================================"
+                echo "       NEXUS ARTIFACT PUBLISHING"
+                echo "======================================"
 
-                    )
+                # Verify credentials
+                : "${NEXUS_USER:?Nexus username missing}"
+                : "${NEXUS_PASSWORD:?Nexus password missing}"
 
-                ]) {
+                # Verify artifact files
+                test -s "$ARTIFACT_NAME"
+                test -s "$ARTIFACT_NAME.sha256"
 
-                    sh '''
-                        set +x
+                # Nexus configuration
+                NEXUS_BASE_URL="http://${NEXUS_HOST}:8081/repository/${NEXUS_REPOSITORY}"
 
-                        set -eu
+                NEXUS_PATH="dev/build-${BUILD_NUMBER}"
 
-                        echo "===== NEXUS PUBLISHING ====="
+                DESTINATION="${NEXUS_BASE_URL}/${NEXUS_PATH}"
 
-                        : "${NEXUS_USER:?Nexus username missing}"
+                echo "Repository: ${NEXUS_REPOSITORY}"
+                echo "Destination: ${NEXUS_PATH}"
+                echo "Artifact: ${ARTIFACT_NAME}"
 
-                        : "${NEXUS_PASSWORD:?Nexus password missing}"
+                # Create temporary credentials file
+                umask 077
 
-                        test -s "$ARTIFACT_NAME"
+                NETRC_FILE=$(mktemp)
 
-                        test -s "$ARTIFACT_NAME.sha256"
+                trap 'rm -f "$NETRC_FILE"' EXIT
 
-                        NEXUS_BASE_URL="http://${NEXUS_HOST}:8081/repository/${NEXUS_REPOSITORY}"
+                printf 'machine %s login %s password %s\\n' "$NEXUS_HOST" "$NEXUS_USER" "$NEXUS_PASSWORD" > "$NETRC_FILE"
 
-                        NEXUS_PATH="dev/build-${BUILD_NUMBER}"
+                echo ""
+                echo "===== UPLOAD APPLICATION ARTIFACT ====="
 
-                        DESTINATION="${NEXUS_BASE_URL}/${NEXUS_PATH}"
+                curl --fail --show-error --silent \
+                    --netrc-file "$NETRC_FILE" \
+                    --upload-file "$ARTIFACT_NAME" \
+                    --write-out '\\nArtifact HTTP status: %{http_code}\\n' \
+                    "${DESTINATION}/${ARTIFACT_NAME}"
 
-                        echo "Repository: ${NEXUS_REPOSITORY}"
+                echo ""
+                echo "Application artifact uploaded."
 
-                        echo "Destination: ${NEXUS_PATH}"
+                echo ""
+                echo "===== UPLOAD CHECKSUM ====="
 
-                        umask 077
+                curl --fail --show-error --silent \
+                    --netrc-file "$NETRC_FILE" \
+                    --upload-file "$ARTIFACT_NAME.sha256" \
+                    --write-out '\\nChecksum HTTP status: %{http_code}\\n' \
+                    "${DESTINATION}/${ARTIFACT_NAME}.sha256"
 
-                        NETRC_FILE=$(mktemp)
+                echo ""
+                echo "Checksum uploaded."
 
-                        trap 'rm -f "$NETRC_FILE"' EXIT
-
-                        printf 'machine %s login %s password %s\\n' \\
-
-                          "$NEXUS_HOST" \\
-
-                          "$NEXUS_USER" \\
-
-                          "$NEXUS_PASSWORD" > "$NETRC_FILE"
-
-                        echo ""
-
-                        echo "===== UPLOAD APPLICATION ARTIFACT ====="
-
-                        curl --fail --show-error --silent \\
-
-                          --netrc-file "$NETRC_FILE" \\
-
-                          --upload-file "$ARTIFACT_NAME" \\
-
-                          --write-out '\\nArtifact HTTP status: %{http_code}\\n' \\
-
-                          "${DESTINATION}/${ARTIFACT_NAME}"
-
-                        echo ""
-
-                        echo "===== UPLOAD CHECKSUM ====="
-
-                        curl --fail --show-error --silent \\
-
-                          --netrc-file "$NETRC_FILE" \\
-
-                          --upload-file "$ARTIFACT_NAME.sha256" \\
-
-                          --write-out '\\nChecksum HTTP status: %{http_code}\\n' \\
-
-                          "${DESTINATION}/${ARTIFACT_NAME}.sha256"
-
-                        echo ""
-
-                        echo "NEXUS PUBLISHING COMPLETED SUCCESSFULLY."
-                    '''
-
-                }
-
-            }
+                echo ""
+                echo "======================================"
+                echo " NEXUS PUBLISHING COMPLETED SUCCESSFULLY"
+                echo "======================================"
+            '''
 
         }
+
+    }
+
+}
 
     }
 
