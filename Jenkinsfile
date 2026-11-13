@@ -5,13 +5,9 @@ pipeline {
     }
 
     options {
-
         timestamps()
-
         disableConcurrentBuilds()
-
         skipDefaultCheckout(true)
-
     }
 
     environment {
@@ -20,13 +16,11 @@ pipeline {
         // This is public frontend configuration, not a secret.
         VITE_BACKEND_URL = 'http://43.205.127.39:5000'
 
-        // Replace with the actual private IP of the Jenkins
-        // controller EC2 instance.
-        NEXUS_HOST = '18.61.1.156'
+        // Jenkins controller EC2 IP hosting Nexus.
+        NEXUS_HOST = '16.112.106.219'
 
         // Nexus Raw hosted repository.
         NEXUS_REPOSITORY = 'lms-webapp-artifacts'
-
     }
 
     stages {
@@ -36,40 +30,29 @@ pipeline {
         // ==========================================
 
         stage('Checkout') {
-
             steps {
-
                 deleteDir()
-
                 checkout scm
 
                 echo 'GitHub source code checkout completed.'
 
                 sh '''
                     echo "Repository details"
-
                     git branch --show-current
-
                     git rev-parse --short=12 HEAD
 
                     echo "Repository files"
-
                     ls -la
                 '''
-
             }
-
         }
-
 
         // ==========================================
         // STAGE 2: VERIFY AGENT
         // ==========================================
 
         stage('Verify Agent') {
-
             steps {
-
                 echo 'Checking the Jenkins execution agent.'
 
                 sh '''
@@ -79,137 +62,104 @@ pipeline {
                     hostname
 
                     echo ""
-
                     echo "Execution user:"
                     whoami
 
                     echo ""
-
                     echo "Workspace:"
                     pwd
 
                     echo ""
-
                     echo "Java:"
                     java -version
 
                     echo ""
-
                     echo "Git:"
                     git --version
 
                     echo ""
-
                     echo "CURL:"
                     curl --version | head -1
 
                     echo ""
-
                     echo "TAR:"
                     tar --version | head -1
 
                     echo ""
-
                     echo "Agent verification completed."
                 '''
-
             }
-
         }
-
 
         // ==========================================
         // STAGE 3: BUILD APPLICATION
         // ==========================================
 
         stage('Install Dependencies and Build') {
-
             steps {
-
                 nodejs(nodeJSInstallationName: 'Node-LMS') {
 
                     env.NODE_VERSION = sh(
-    script: 'node --version',
-    returnStdout: true
-).trim()
+                        script: 'node --version',
+                        returnStdout: true
+                    ).trim()
 
-env.NPM_VERSION = sh(
-    script: 'npm --version',
-    returnStdout: true
-).trim()
-                    
+                    env.NPM_VERSION = sh(
+                        script: 'npm --version',
+                        returnStdout: true
+                    ).trim()
+
                     sh '''
                         set -eu
 
                         echo "===== NODE.JS ====="
-
                         node --version
 
                         echo ""
-
                         echo "===== NPM ====="
-
                         npm --version
 
                         echo ""
-
                         echo "===== VERIFY PROJECT ====="
 
                         test -f package.json
-
                         test -f package-lock.json
-
                         test -d src
-
                         test -d public
 
                         echo "Project structure verified."
 
                         echo ""
-
                         echo "===== INSTALL DEPENDENCIES ====="
 
                         npm ci --no-audit --no-fund
 
                         echo ""
-
                         echo "===== BUILD APPLICATION ====="
 
                         npm run build
 
                         echo ""
-
                         echo "===== VERIFY OUTPUT ====="
 
                         test -d dist
-
                         test -s dist/index.html
 
                         ls -lah dist
 
                         echo ""
-
                         echo "LMS APPLICATION BUILD COMPLETED."
                     '''
-
                 }
-
             }
-
         }
-
-
-    
-
 
         // ==========================================
         // STAGE 5: PACKAGE ARTIFACT
         // ==========================================
 
         stage('Package Artifact') {
-
             steps {
-
                 script {
 
                     env.GIT_SHA = sh(
@@ -219,7 +169,6 @@ env.NPM_VERSION = sh(
 
                     env.ARTIFACT_NAME =
                         "lms-academy-webapp-dev-b${BUILD_NUMBER}-${env.GIT_SHA}.tar.gz"
-
                 }
 
                 sh '''
@@ -228,7 +177,6 @@ env.NPM_VERSION = sh(
                     echo "===== PREPARE ARTIFACT ====="
 
                     rm -rf artifact-staging
-
                     mkdir -p artifact-staging
 
                     cp -a dist artifact-staging/
@@ -247,7 +195,6 @@ Build Date UTC: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
 
                     echo ""
-
                     echo "===== CREATE ARTIFACT ====="
 
                     tar -czf "$ARTIFACT_NAME" -C artifact-staging .
@@ -255,145 +202,120 @@ EOF
                     test -s "$ARTIFACT_NAME"
 
                     echo ""
-
                     echo "===== GENERATE SHA256 ====="
 
                     sha256sum "$ARTIFACT_NAME" > "$ARTIFACT_NAME.sha256"
 
                     echo ""
-
                     echo "===== ARTIFACT DETAILS ====="
 
                     ls -lh "$ARTIFACT_NAME"
-
                     cat "$ARTIFACT_NAME.sha256"
 
                     echo ""
-
                     echo "ARTIFACT PACKAGING COMPLETED."
                 '''
-
             }
-
         }
-
 
         // ==========================================
         // STAGE 6: ARCHIVE IN JENKINS
         // ==========================================
 
         stage('Archive Artifact') {
-
             steps {
-
                 archiveArtifacts(
-
                     artifacts: "${env.ARTIFACT_NAME},${env.ARTIFACT_NAME}.sha256,artifact-staging/artifact-info.txt",
-
                     fingerprint: true
-
                 )
 
                 echo 'Artifacts archived in Jenkins.'
-
             }
-
         }
-
 
         // ==========================================
         // STAGE 7: PUBLISH TO NEXUS
         // ==========================================
 
-        
-stage('Publish to Nexus') {
+        stage('Publish to Nexus') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'nexus-lms-uploader',
+                        usernameVariable: 'NEXUS_USER',
+                        passwordVariable: 'NEXUS_PASSWORD'
+                    )
+                ]) {
 
-    steps {
+                    sh '''
+                        set +x
+                        set -eu
 
-        withCredentials([
+                        echo "======================================"
+                        echo "       NEXUS ARTIFACT PUBLISHING"
+                        echo "======================================"
 
-            usernamePassword(
-                credentialsId: 'nexus-lms-uploader',
-                usernameVariable: 'NEXUS_USER',
-                passwordVariable: 'NEXUS_PASSWORD'
-            )
+                        # Verify credentials
+                        : "${NEXUS_USER:?Nexus username missing}"
+                        : "${NEXUS_PASSWORD:?Nexus password missing}"
 
-        ]) {
+                        # Verify artifact files
+                        test -s "$ARTIFACT_NAME"
+                        test -s "$ARTIFACT_NAME.sha256"
 
-            sh '''
-                set +x
-                set -eu
+                        # Nexus configuration
+                        NEXUS_BASE_URL="http://${NEXUS_HOST}:8081/repository/${NEXUS_REPOSITORY}"
 
-                echo "======================================"
-                echo "       NEXUS ARTIFACT PUBLISHING"
-                echo "======================================"
+                        NEXUS_PATH="dev/build-${BUILD_NUMBER}"
 
-                # Verify credentials
-                : "${NEXUS_USER:?Nexus username missing}"
-                : "${NEXUS_PASSWORD:?Nexus password missing}"
+                        DESTINATION="${NEXUS_BASE_URL}/${NEXUS_PATH}"
 
-                # Verify artifact files
-                test -s "$ARTIFACT_NAME"
-                test -s "$ARTIFACT_NAME.sha256"
+                        echo "Repository: ${NEXUS_REPOSITORY}"
+                        echo "Destination: ${NEXUS_PATH}"
+                        echo "Artifact: ${ARTIFACT_NAME}"
 
-                # Nexus configuration
-                NEXUS_BASE_URL="http://${NEXUS_HOST}:8081/repository/${NEXUS_REPOSITORY}"
+                        # Create temporary credentials file
+                        umask 077
 
-                NEXUS_PATH="dev/build-${BUILD_NUMBER}"
+                        NETRC_FILE=$(mktemp)
 
-                DESTINATION="${NEXUS_BASE_URL}/${NEXUS_PATH}"
+                        trap 'rm -f "$NETRC_FILE"' EXIT
 
-                echo "Repository: ${NEXUS_REPOSITORY}"
-                echo "Destination: ${NEXUS_PATH}"
-                echo "Artifact: ${ARTIFACT_NAME}"
+                        printf 'machine %s login %s password %s\\n' "$NEXUS_HOST" "$NEXUS_USER" "$NEXUS_PASSWORD" > "$NETRC_FILE"
 
-                # Create temporary credentials file
-                umask 077
+                        echo ""
+                        echo "===== UPLOAD APPLICATION ARTIFACT ====="
 
-                NETRC_FILE=$(mktemp)
+                        curl --fail --show-error --silent \
+                            --netrc-file "$NETRC_FILE" \
+                            --upload-file "$ARTIFACT_NAME" \
+                            --write-out '\\nArtifact HTTP status: %{http_code}\\n' \
+                            "${DESTINATION}/${ARTIFACT_NAME}"
 
-                trap 'rm -f "$NETRC_FILE"' EXIT
+                        echo ""
+                        echo "Application artifact uploaded."
 
-                printf 'machine %s login %s password %s\\n' "$NEXUS_HOST" "$NEXUS_USER" "$NEXUS_PASSWORD" > "$NETRC_FILE"
+                        echo ""
+                        echo "===== UPLOAD CHECKSUM ====="
 
-                echo ""
-                echo "===== UPLOAD APPLICATION ARTIFACT ====="
+                        curl --fail --show-error --silent \
+                            --netrc-file "$NETRC_FILE" \
+                            --upload-file "$ARTIFACT_NAME.sha256" \
+                            --write-out '\\nChecksum HTTP status: %{http_code}\\n' \
+                            "${DESTINATION}/${ARTIFACT_NAME}.sha256"
 
-                curl --fail --show-error --silent \
-                    --netrc-file "$NETRC_FILE" \
-                    --upload-file "$ARTIFACT_NAME" \
-                    --write-out '\\nArtifact HTTP status: %{http_code}\\n' \
-                    "${DESTINATION}/${ARTIFACT_NAME}"
+                        echo ""
+                        echo "Checksum uploaded."
 
-                echo ""
-                echo "Application artifact uploaded."
-
-                echo ""
-                echo "===== UPLOAD CHECKSUM ====="
-
-                curl --fail --show-error --silent \
-                    --netrc-file "$NETRC_FILE" \
-                    --upload-file "$ARTIFACT_NAME.sha256" \
-                    --write-out '\\nChecksum HTTP status: %{http_code}\\n' \
-                    "${DESTINATION}/${ARTIFACT_NAME}.sha256"
-
-                echo ""
-                echo "Checksum uploaded."
-
-                echo ""
-                echo "======================================"
-                echo " NEXUS PUBLISHING COMPLETED SUCCESSFULLY"
-                echo "======================================"
-            '''
-
+                        echo ""
+                        echo "======================================"
+                        echo " NEXUS PUBLISHING COMPLETED SUCCESSFULLY"
+                        echo "======================================"
+                    '''
+                }
+            }
         }
-
     }
-
-}
-
-    }
-
 
     // ==========================================
     // POST BUILD ACTIONS
@@ -402,23 +324,15 @@ stage('Publish to Nexus') {
     post {
 
         success {
-
             echo 'LMS CI/CD Pipeline completed successfully.'
-
         }
 
         failure {
-
             echo 'LMS CI/CD Pipeline failed. Check the failed stage and console output.'
-
         }
 
         always {
-
             echo "Pipeline execution finished. Build number: ${BUILD_NUMBER}"
-
         }
-
     }
-
 }
