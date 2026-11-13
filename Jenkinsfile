@@ -16,7 +16,7 @@ pipeline {
         VITE_BACKEND_URL = 'http://43.205.127.39:5000'
 
         // Nexus server IP
-        NEXUS_HOST = '18.61.1.156'
+        NEXUS_HOST = '16.112.106.219'
 
         // Nexus Raw hosted repository
         NEXUS_REPOSITORY = 'lms-webapp-artifacts'
