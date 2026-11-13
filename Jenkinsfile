@@ -1,3 +1,4 @@
+
 pipeline {
 
     agent {
@@ -11,15 +12,13 @@ pipeline {
     }
 
     environment {
-
-        // LMS backend URL used during Vite production build.
-        // This is public frontend configuration, not a secret.
+        // Backend URL used during the Vite production build
         VITE_BACKEND_URL = 'http://43.205.127.39:5000'
 
-        // Jenkins controller EC2 IP hosting Nexus.
-        NEXUS_HOST = '16.112.106.219'
+        // Nexus server IP
+        NEXUS_HOST = '18.61.1.156'
 
-        // Nexus Raw hosted repository.
+        // Nexus Raw hosted repository
         NEXUS_REPOSITORY = 'lms-webapp-artifacts'
     }
 
@@ -41,6 +40,7 @@ pipeline {
                     git branch --show-current
                     git rev-parse --short=12 HEAD
 
+                    echo ""
                     echo "Repository files"
                     ls -la
                 '''
@@ -92,22 +92,27 @@ pipeline {
         }
 
         // ==========================================
-        // STAGE 3: BUILD APPLICATION
+        // STAGE 3: INSTALL DEPENDENCIES AND BUILD
         // ==========================================
 
         stage('Install Dependencies and Build') {
             steps {
                 nodejs(nodeJSInstallationName: 'Node-LMS') {
 
-                    env.NODE_VERSION = sh(
-                        script: 'node --version',
-                        returnStdout: true
-                    ).trim()
+                    // IMPORTANT:
+                    // Groovy assignments must be inside script {}
 
-                    env.NPM_VERSION = sh(
-                        script: 'npm --version',
-                        returnStdout: true
-                    ).trim()
+                    script {
+                        env.NODE_VERSION = sh(
+                            script: 'node --version',
+                            returnStdout: true
+                        ).trim()
+
+                        env.NPM_VERSION = sh(
+                            script: 'npm --version',
+                            returnStdout: true
+                        ).trim()
+                    }
 
                     sh '''
                         set -eu
@@ -140,7 +145,7 @@ pipeline {
                         npm run build
 
                         echo ""
-                        echo "===== VERIFY OUTPUT ====="
+                        echo "===== VERIFY BUILD OUTPUT ====="
 
                         test -d dist
                         test -s dist/index.html
@@ -155,13 +160,12 @@ pipeline {
         }
 
         // ==========================================
-        // STAGE 5: PACKAGE ARTIFACT
+        // STAGE 4: PACKAGE ARTIFACT
         // ==========================================
 
         stage('Package Artifact') {
             steps {
                 script {
-
                     env.GIT_SHA = sh(
                         script: 'git rev-parse --short=12 HEAD',
                         returnStdout: true
@@ -219,7 +223,7 @@ EOF
         }
 
         // ==========================================
-        // STAGE 6: ARCHIVE IN JENKINS
+        // STAGE 5: ARCHIVE IN JENKINS
         // ==========================================
 
         stage('Archive Artifact') {
@@ -234,7 +238,7 @@ EOF
         }
 
         // ==========================================
-        // STAGE 7: PUBLISH TO NEXUS
+        // STAGE 6: PUBLISH TO NEXUS
         // ==========================================
 
         stage('Publish to Nexus') {
